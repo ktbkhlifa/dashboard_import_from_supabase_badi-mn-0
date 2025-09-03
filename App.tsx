@@ -1,118 +1,115 @@
-import { useState, useEffect } from 'react';
-import { supabase } from './lib/supabaseClient';
+import { useState } from 'react';
 import Header from './components/Header';
 import PlantSelector from './components/PlantSelector';
 import KPICard from './components/KPICard';
 import { Icons } from './components/Icons';
+import { useSupabaseData } from './hooks/useSupabaseData';
 import { Simulation } from './types';
+import LineChartComponent from './components/LineChartComponent';
+import ChartCard from './components/ChartCard';
+import { formatDate } from './lib/utils';
+import { PowerOutputIcon, SolarIrradianceIcon, WindSpeedIcon, HumidityIcon } from './components/Icons';
 
 function App() {
-  const [plants, setPlants] = useState<string[]>([]);
-  const [selectedPlant, setSelectedPlant] = useState<string>('');
-  const [latestSimulation, setLatestSimulation] = useState<Simulation | null>(null);
-  const [loadingSummary, setLoadingSummary] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const [noDataFound, setNoDataFound] = useState<boolean>(false);
+  const [selectedPlant, setSelectedPlant] = useState<string>('Asparagus');
+  const [selectedDate, setSelectedDate] = useState<string>('2022-01-01');
 
-  // L'useEffect l'asli li kayjib la liste o akhir simulation
-  useEffect(() => {
-    const fetchInitialData = async () => {
-      setLoadingSummary(true);
-      setError(null);
-      setNoDataFound(false);
+  const { data, loading, error } = useSupabaseData(selectedPlant, selectedDate);
 
-      const { data: plantsData, error: plantsError } = await supabase.rpc('get_unique_crop_names');
+  const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newDate = e.target.value;
+    setSelectedDate(newDate);
+  };
 
-      if (plantsError) {
-        setError('Could not load plant list from the database.');
-        setLoadingSummary(false);
-        return;
-      }
-      
-      const uniquePlants = plantsData?.map((p: any) => p.crop_name).filter(Boolean) ?? [];
-      setPlants(uniquePlants);
-
-      if (uniquePlants.length > 0) {
-        const { data: latestSimData, error: latestSimError } = await supabase
-          .from('simulations')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-        
-        if (latestSimError) {
-          setError('Could not load the latest simulation data.');
-        } else if (latestSimData) {
-          setSelectedPlant(latestSimData.crop_name);
-          setLatestSimulation(latestSimData);
-        }
-      } else {
-        setNoDataFound(true);
-      }
-      setLoadingSummary(false);
-    };
-
-    fetchInitialData();
-  }, []);
-
-  // L'useEffect li kayjib data mli kan'beddlo l'plante
-  useEffect(() => {
-    if (!selectedPlant || (latestSimulation && latestSimulation.crop_name === selectedPlant)) return;
-    
-    const fetchSimulationForPlant = async () => {
-      setLoadingSummary(true);
-      const { data, error } = await supabase
-        .from('simulations')
-        .select('*')
-        .eq('crop_name', selectedPlant)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-      
-      if (error) {
-        setError(`Could not load simulation data for ${selectedPlant}.`);
-        setLatestSimulation(null);
-      } else {
-        setLatestSimulation(data);
-      }
-      setLoadingSummary(false);
-    };
-
-    fetchSimulationForPlant();
-  }, [selectedPlant]);
-
-  // Fonction jdida dyal l'affichage (mbssṭa)
   const renderContent = () => {
-    if (loadingSummary) return <p className="text-center font-semibold text-lg mt-10">🔄 Loading simulation summary...</p>;
-    if (error) return <p className="text-center text-red-600 bg-red-100 p-4 rounded-md mt-10">❌ Error: {error}</p>;
-    if (noDataFound) return <div className="text-center mt-10"><p className="text-xl font-semibold">No simulation data found.</p></div>;
-    if (!latestSimulation) return <p className="text-center font-semibold text-lg mt-10">🤔 No simulation found for {selectedPlant}.</p>;
+    if (loading) {
+      return <p className="text-center font-semibold text-lg mt-10">🔄 Loading data...</p>;
+    }
+    if (error) {
+      return <p className="text-center text-red-600 bg-red-100 p-4 rounded-md mt-10">❌ Error: {error}</p>;
+    }
+    if (!data || !data.latestSimulation) {
+      return <p className="text-center font-semibold text-lg mt-10">🤔 No data found for {selectedPlant}.</p>;
+    }
 
-    // Hna kan'affichiw ghir les KPIs
+    const latestSimulation = data.latestSimulation;
+    const latestSensorData = data.latestSensorData;
+    const liveHourlyData = data.liveHourlyData;
+
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-        <KPICard title="Water Savings" value={`${(latestSimulation.water_savings_percent ?? 0).toFixed(2)}%`} icon={Icons.droplet()} description="Annual water savings" />
-        <KPICard title="Peak Temp. Reduction" value={`${((latestSimulation.peak_temp_open_field ?? 0) - (latestSimulation.peak_temp_under_panels ?? 0)).toFixed(2)}°C`} icon={Icons.thermometer()} description="Cooling effect" />
-        <KPICard title="DLI Under Panels" value={`${(latestSimulation.dli_under_panels ?? 0).toFixed(2)}`} icon={Icons.sun()} description="mol/m²/day" />
-        <KPICard title="Optimal Pitch" value={`${(latestSimulation.pitch_simulated ?? 0).toFixed(1)} m`} icon={Icons.bolt()} description="For this simulation" />
+      <div id="dashboard-content">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+          <KPICard
+            title="Daily Production"
+            value={latestSensorData?.daily_production_mwh ? `${latestSensorData.daily_production_mwh.toFixed(2)} MWh` : 'N/A'}
+            icon={Icons.bolt()}
+            description="Daily energy output"
+          />
+          <KPICard
+            title="DLI Under Panels"
+            value={`${(latestSimulation.dli_under_panels ?? 0).toFixed(2)} mol/m²/day`}
+            icon={Icons.sun()}
+            description="Daily Light Integral"
+          />
+           <KPICard
+            title="Wind Speed"
+            value={latestSensorData?.wind_speed ? `${latestSensorData.wind_speed.toFixed(2)} m/s` : 'N/A'}
+            icon={Icons.bolt()}
+            description="Live wind speed"
+          />
+          <KPICard
+            title="Optimal Pitch"
+            value={`${(latestSimulation.pitch_simulated ?? 0).toFixed(1)} m`}
+            icon={Icons.bolt()}
+            description="For this simulation"
+          />
+        </div>
+
+        {/* Updated: Charts for live hourly data */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          <ChartCard title="Hourly Production & Irradiance">
+             <LineChartComponent 
+                  data={liveHourlyData}
+                  xAxisKey="time"
+                  lines={[
+                      { key: 'ghi_agrivoltaic', name: 'Irradiance (W/m²)', color: '#f59e0b', yAxisId: 'left' },
+                      { key: 'power_output_mw', name: 'Power Output (MW)', color: '#22c55e', yAxisId: 'right' },
+                  ]}
+             />
+          </ChartCard>
+          <ChartCard title="Live Temperature, Humidity & Wind">
+              <LineChartComponent 
+                  data={liveHourlyData}
+                  xAxisKey="time"
+                  lines={[
+                      { key: 'relative_humidity', name: 'Humidity (%)', color: '#3b82f6', yAxisId: 'left' },
+                      { key: 'wind_speed', name: 'Wind Speed (m/s)', color: '#94a3b8', yAxisId: 'right' },
+                  ]}
+              />
+          </ChartCard>
+        </div>
       </div>
     );
   };
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800">
-      <Header />
+      <Header 
+        selectedPlantName={data?.latestSimulation?.crop_name || selectedPlant} 
+        onDateChange={handleDateChange}
+        selectedDate={selectedDate}
+        liveTime={data?.latestSensorData?.created_at}
+      >
+        {data?.plants.length > 0 && (
+          <PlantSelector
+            plants={data.plants}
+            selectedPlant={selectedPlant}
+            onPlantChange={setSelectedPlant}
+          />
+        )}
+      </Header>
       <main className="container mx-auto p-4 md:p-6 lg:p-8">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-          <h1 className="text-2xl md:text-3xl font-bold text-gray-700">Agrivoltaic Dashboard</h1>
-          {plants.length > 0 && selectedPlant && (
-            <PlantSelector
-              plants={plants}
-              selectedPlant={selectedPlant}
-              onPlantChange={setSelectedPlant}
-            />
-          )}
-        </div>
+        <h1 className="text-2xl md:text-3xl font-bold text-gray-700 mb-6">Agrivoltaic Dashboard</h1>
         {renderContent()}
       </main>
     </div>
