@@ -1,0 +1,5 @@
+
+{
+  "name": "Agrivoltaic Monitoring Dashboard",
+  "description": "A dashboard for monitoring agrivoltaic systems, visualizing sensor data for soil moisture, temperature, humidity, and power production. It includes forecasting, recommendations, and data export functionalities."
+}
